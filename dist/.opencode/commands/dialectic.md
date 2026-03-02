@@ -1,9 +1,9 @@
 ---
 name: dialectic
-description: Диалектический разбор (skill thinking_dialectic).
+description: Диалектический разбор (skill thinking-dialectic).
 argument-hint: "<утверждение>"
 ---
 
-Активируй skill `thinking_dialectic`.
+Активируй skill `thinking-dialectic`.
 
 Тезис: **$ARGUMENTS**

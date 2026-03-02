@@ -3,8 +3,8 @@
 Минимальный набор для релиз-процесса.
 
 Содержимое:
-- `.opencode/skills/release_new/SKILL.md` — «провести релиз»: следующий semver, заметки, тег, релиз (при наличии `gh`/`glab`/`tea`).
-- `.opencode/skills/release_last_tag/SKILL.md` — список коммитов после последнего тега.
+- `.opencode/skills/release-new/SKILL.md` — «провести релиз»: следующий semver, заметки, тег, релиз (при наличии `gh`/`glab`/`tea`).
+- `.opencode/skills/release-last-tag/SKILL.md` — список коммитов после последнего тега.
 
 Примечание:
 - Это «скелет» под доработку. В ваших условиях (GitHub/GitLab/Gitea, политика релизов) шаги удобно уточнить и автоматизировать.
