@@ -7,6 +7,7 @@
 - **Skills**: структурированные промпты для брейншторма, ревью, мышления, workflow.
 - **Командные обёртки**: чтобы запускать workflow одной командой.
 - **Скрипты аннотаций**: редактирование diff/плана в $EDITOR с возвратом unified diff.
+- **Custom rules**: идея project/user overrides переносится, но с OpenCode-путями (`.opencode/*.md`, `~/.config/opencode/*.md`) вместо `.claude/*` и `$CLAUDE_PLUGIN_DATA/*`.
 
 ## Что переносится частично
 

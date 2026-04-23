@@ -35,5 +35,19 @@
 
 - `python3 .opencode/scripts/plan-annotate.py <file>`
 - `python3 .opencode/scripts/git-review.py [--ref <ref>]`
+- `bash .opencode/scripts/planning-resolve-rules.sh planning-rules.md`
+- `bash .opencode/scripts/brainstorm-resolve-rules.sh brainstorm-rules.md`
+- `bash .opencode/scripts/detect-platform.sh`
+- `bash .opencode/scripts/calc-version.sh hotfix`
+- `bash .opencode/scripts/get-notes.sh github`
 
 Если хотите запускать их прямо из OpenCode через `bash` — убедитесь, что ваш OpenCode/терминал корректно работает с интерактивными программами.
+
+## Custom Rules
+
+Для `planning` и `brainstorm` можно завести дополнительные правила:
+
+- проектные: `.opencode/planning-rules.md`, `.opencode/brainstorm-rules.md`
+- глобальные: `~/.config/opencode/planning-rules.md`, `~/.config/opencode/brainstorm-rules.md`
+
+Сначала читается проектный файл, потом глобальный. Это позволяет хранить общие предпочтения в глобальной конфигурации, а project-specific ограничения держать рядом с кодом.
