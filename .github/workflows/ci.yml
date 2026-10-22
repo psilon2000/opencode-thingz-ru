@@ -66,3 +66,4 @@ jobs:
         run: |
           python3 plugins/planning/opencode/scripts/plan-annotate.py --test
           python3 plugins/review/opencode/scripts/git-review.py --test
+          python3 plugins/jev/opencode/scripts/jev_ask.py --test
