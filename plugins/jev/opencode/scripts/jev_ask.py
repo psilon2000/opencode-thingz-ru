@@ -9,6 +9,9 @@
   JSONL: {"id": ..., "text": ...} (поля меняются --id-field / --text-field); JSON-массив таких объектов;
   --lines: каждая непустая строка — элемент, id — номер строки.
 
+Ограничения на данные действуют только для прода. Элемент о тестовой или разработческой среде (по признакам в тексте
+или --env nonprod) уходит без фильтра, кроме ключей внешних сервисов; прод и неопределённое окружение — по --filter.
+
 Ключ: TYPESAFE_API_KEY или ~/.config/typesafe/api_key. Журнал запусков без текстов:
 $JEV_ASK_STATE_DIR/log.jsonl (по умолчанию ~/.local/state/jev-ask).
 
@@ -39,23 +42,33 @@ DEFAULT_MODEL = "jev-1.13.0"  # закреплённая версия: у али
 KEY_FILE = Path.home() / ".config/typesafe/api_key"
 STATE_DIR = Path(os.environ.get("JEV_ASK_STATE_DIR") or Path.home() / ".local/state/jev-ask")
 
-SECRETS = [
+# Ключи реальных внешних сервисов: действуют независимо от окружения, поэтому не уходят никогда, кроме --filter off.
+TOKENS = [
     r"glpat-[\w-]{20,}", r"gh[pousr]_[A-Za-z0-9]{30,}", r"xox[abprs]-[\w-]{10,}", r"AKIA[0-9A-Z]{16}",
     r"sk-(ant-)?[A-Za-z0-9_-]{20,}", r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
+]
+SECRETS = TOKENS + [
     r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}", r"\bBearer\s+[A-Za-z0-9._~+/-]{20,}",
     r"(?i)\b(password|passwd|pwd|пароль)\s*[:=]\s*['\"]?(?=[^\s'\"]*[\d!@#$%^&*])[^\s'\"]{6,}",
     r"(?i)\b(password|pwd)=[^;\s]{3,};", r"\b[a-z][a-z0-9+.-]*://[^\s:/@]+:[^\s@/]{3,}@",
 ]
 PERSONAL = [
-    r"(?<![\d+])(?:\+7|8)[\s\-(]*\d{3}[\s\-)]*\d{3}[\s\-]*\d{2}[\s\-]*\d{2}(?!\d)",  # телефон РФ
-    r"(?<!\d)\d{12}(?!\d)",  # ИНН физлица или ИП
+    r"(?<![\d+])(?:\+7|8)[\s\-(]*(?!800)\d{3}[\s\-)]*\d{3}[\s\-]*\d{2}[\s\-]*\d{2}(?!\d)",  # телефон РФ, кроме 8-800
     r"(?<!\d)\d{3}-\d{3}-\d{3}[ -]\d{2}(?!\d)",  # СНИЛС
     r"(?i)паспорт\D{0,20}\d{2}\s?\d{2}\s?\d{6}",
-    r"(?i)(зарплат|зп\b|оклад|преми[яию]|увол[иь]|оффер|компенсаци|больнич|заболе|болеет|декрет|на руки|ндфл"
-    r"|диагноз|медицинск)",
-    r"(?i)(?<![\w.])\d{2,3}\s?(к|тыс)\b",
+    r"(?i)(зарплат|зп\b|оклад|преми[яию]|увол[иь]|оффер|больнич|заболе|болеет|декрет|на руки|ндфл|диагноз|медицинск)",
 ]
 FILTERS = {"strict": SECRETS + PERSONAL, "secrets": SECRETS, "off": []}
+
+# Окружение элемента. Ограничения на данные действуют только для прода: в тестовых и разработческих средах данные
+# придуманные или неважные. Статусы Jira («Ready for dev», «TestDone») и роль «тестировщик» окружение не означают.
+WORKFLOW_NOISE = re.compile(r"(?i)\b(ready ?for ?(dev|test)|in ?testing|test ?done|in ?dev|rft)\b|тестировщ\w*")
+STATUS_FIELD = re.compile(r"(?i)status=\S+")
+NONPROD = re.compile(
+    r"(?i)((^|[\W_])(test|dev|stage|staging|sandbox|preprod|uat)([\W_]|$)|тестов(ый|ая|ое|ые|ых|ого|ому|ом|ой|ую)\b"
+    r"|\bстенд\w*|песочниц\w*|разработческ\w*|\bдев\w*\b|\bтест(а|е|у|ом)?\b|уч[её]тк\w*"
+    r"|(?-i:[a-z](Test|Dev|Stage|Sandbox)(?![a-z])))")  # составные имена: OrchTest, ApiDev
+PROD = re.compile(r"(?i)((^|[\W_])(prod|production|prd)([\W_]|$)|\bпрод(а|е|у|ом|овск\w*)?\b|продуктивн\w*|боев\w*|промышленн\w*)")
 
 
 def luhn_card(text: str) -> bool:
@@ -70,10 +83,48 @@ def luhn_card(text: str) -> bool:
     return False
 
 
-def blocked(text: str, mode: str) -> bool:
+def inn12_check(first10: str) -> str:
+    """Два контрольных разряда ИНН физлица/ИП по первым десяти цифрам."""
+    weights11, weights12 = [7, 2, 4, 10, 3, 5, 9, 4, 6, 8], [3, 7, 2, 4, 10, 3, 5, 9, 4, 6, 8]
+    d11 = sum(w * int(c) for w, c in zip(weights11, first10)) % 11 % 10
+    d12 = sum(w * int(c) for w, c in zip(weights12, first10 + str(d11))) % 11 % 10
+    return f"{d11}{d12}"
+
+
+def personal_inn(text: str) -> bool:
+    """12 цифр с верной контрольной суммой ИНН; прочие длинные идентификаторы не считаются."""
+    return any(number[10:] == inn12_check(number[:10]) for number in re.findall(r"(?<!\d)\d{12}(?!\d)", text))
+
+
+def environment(text: str) -> str:
+    """prod, nonprod или unknown по признакам в тексте. Признаки прода побеждают: смешанный текст считается продом."""
+    clean = STATUS_FIELD.sub(" ", WORKFLOW_NOISE.sub(" ", text))
+    if PROD.search(clean):
+        return "prod"
+    if NONPROD.search(clean):
+        return "nonprod"
+    return "unknown"
+
+
+def block_reason(text: str, mode: str, env: str = "auto") -> str | None:
+    """Причина не отправлять элемент или None. Для тестовых и разработческих сред ограничений нет, кроме ключей."""
     if mode == "off":
-        return False
-    return luhn_card(text) or any(re.search(pattern, text) for pattern in FILTERS[mode])
+        return None
+    if any(re.search(pattern, text) for pattern in TOKENS):
+        return "token"
+    if (environment(text) if env == "auto" else env) == "nonprod":
+        return None
+    if luhn_card(text):
+        return "card"
+    if any(re.search(pattern, text) for pattern in SECRETS):
+        return "secret"
+    if mode == "strict" and (personal_inn(text) or any(re.search(pattern, text) for pattern in PERSONAL)):
+        return "personal"
+    return None
+
+
+def blocked(text: str, mode: str, env: str = "auto") -> bool:
+    return block_reason(text, mode, env) is not None
 
 
 def read_items(source: str, lines: bool, id_field: str, text_field: str) -> list[dict]:
@@ -170,12 +221,24 @@ def summarize(kind: str, items: list[dict], results: dict, skipped: list[dict], 
     counts: dict[str, int] = {}
     for item in done:
         counts[results[item["id"]]["label"]] = counts.get(results[item["id"]]["label"], 0) + 1
+    envs: dict[str, int] = {}
+    for item in items + skipped:
+        envs[item["env"]] = envs.get(item["env"], 0) + 1
+    reasons: dict[str, int] = {}
+    for item in skipped:
+        reasons[item["reason"]] = reasons.get(item["reason"], 0) + 1
+    env_names = {"nonprod": "тест и разработка (без ограничений)", "prod": "прод", "unknown": "не определено"}
     lines = [
         f"Jev {meta.get('model') or args.model}: {kind}, элементов {len(items) + len(skipped)}, оценено {len(done)}, "
         f"пропущено фильтром ({args.filter}) {len(skipped)}, ошибок {len(errors)}; пачек {meta['batches']}, "
         f"входных токенов {meta['input_tokens']}, {meta['ms'] / 1000:.1f} с.",
+        "Окружение (--env " + args.env + "): " + ", ".join(f"{env_names[name]} — {count}" for name, count in sorted(envs.items())),
         "Итог (порог " + str(args.threshold) + "): " + ", ".join(f"{label} — {count}" for label, count in sorted(counts.items(), key=lambda pair: -pair[1])),
     ]
+    if reasons:
+        reason_names = {"token": "ключ внешнего сервиса", "card": "номер карты", "secret": "пароль или токен",
+                        "personal": "персональные данные"}
+        lines.append("Причины пропуска: " + ", ".join(f"{reason_names[name]} — {count}" for name, count in reasons.items()))
     if meta.get("errors"):
         lines.append("Ошибки API: " + "; ".join(meta["errors"][:3]))
     for label in sorted(counts, key=lambda name: -counts[name]):
@@ -201,13 +264,18 @@ def run(args) -> int:
     items = read_items(args.items, args.lines, args.id_field, args.text_field)
     if args.limit:
         items = items[: args.limit]
-    skipped = [item for item in items if blocked(item["text"], args.filter)]
-    items = [item for item in items if not blocked(item["text"], args.filter)]
+    for item in items:
+        item["env"] = environment(item["text"]) if args.env == "auto" else args.env
+        item["reason"] = block_reason(item["text"], args.filter, item["env"])
+    skipped = [item for item in items if item["reason"]]
+    items = [item for item in items if not item["reason"]]
     batches = make_batches(items, args.max_chars, args.batch_chars)
     if args.dry_run:
+        envs = {name: sum(1 for item in items + skipped if item["env"] == name) for name in ("nonprod", "prod", "unknown")}
         print(f"Сухой прогон: элементов {len(items) + len(skipped)}, к отправке {len(items)}, "
               f"пропущено фильтром ({args.filter}) {len(skipped)}, пачек {len(batches)}, "
-              f"символов к отправке ≈ {sum(min(len(item['text']), args.max_chars) for item in items)}.")
+              f"символов к отправке ≈ {sum(min(len(item['text']), args.max_chars) for item in items)}; "
+              f"окружение: тест и разработка {envs['nonprod']}, прод {envs['prod']}, не определено {envs['unknown']}.")
         return 0
     key = api_key()
     if not key:
@@ -239,9 +307,11 @@ def run(args) -> int:
     if args.out:
         with open(args.out, "w", encoding="utf-8") as handle:
             for item in items:
-                handle.write(json.dumps({"id": item["id"], **results.get(item["id"], {"label": "error"})}, ensure_ascii=False) + "\n")
+                handle.write(json.dumps({"id": item["id"], **results.get(item["id"], {"label": "error"}), "env": item["env"]},
+                                        ensure_ascii=False) + "\n")
             for item in skipped:
-                handle.write(json.dumps({"id": item["id"], "label": "skipped", "reason": f"filter:{args.filter}"}, ensure_ascii=False) + "\n")
+                handle.write(json.dumps({"id": item["id"], "label": "skipped", "reason": item["reason"], "env": item["env"]},
+                                        ensure_ascii=False) + "\n")
     print(summarize(args.type, items, results, skipped, meta, args))
     try:
         STATE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -251,6 +321,7 @@ def run(args) -> int:
                 "question_hash": hashlib.sha256(args.question.encode("utf-8")).hexdigest()[:12],
                 "items": len(items) + len(skipped), "sent": len(items), "skipped": len(skipped), "filter": args.filter,
                 "errors": len(errors), "input_tokens": tokens, "ms": meta["ms"],
+                "nonprod": sum(1 for item in items + skipped if item["env"] == "nonprod"),
             }) + "\n")
     except OSError:
         pass
@@ -265,6 +336,21 @@ def self_test() -> int:
     assert blocked("Хочет уволиться", "strict")
     assert not blocked("Карта 4111 1111 1111 1111", "off")
     assert not blocked("ERROR connection refused to db-test-01:5432", "strict")
+    inn = "5001007322" + inn12_check("5001007322")
+    assert blocked(f"Клиент не ликвидирован, ИНН {inn}", "strict")
+    assert blocked(f"На проде клиент с ИНН {inn}", "strict")
+    assert not blocked(f"Тестовый клиент на DEV, ИНН {inn}", "strict")
+    assert not blocked(f"Учетка: Логин: 9286930828 ИНН: {inn} ОГРН: 319000000059790", "strict")
+    assert blocked(f"status=Ready for dev Клиент ИНН {inn}", "strict"), "статус Jira не означает тестовую среду"
+    assert blocked(f"Проверено на тесте, на проде клиент ИНН {inn}", "strict"), "смешанный текст — прод"
+    assert not blocked("Идентификатор операции 583408580400", "strict"), "12 цифр без контрольной суммы ИНН"
+    assert not blocked("Горячая линия 8 800 222 56 84", "strict")
+    assert not blocked("На тесте карта 4111 1111 1111 1111, пароль: Qwerty123!", "strict")
+    assert blocked("На тесте токен glpat-abcdefghijklmnopqrstuv", "strict"), "ключи внешних сервисов — всегда"
+    assert not blocked(f"ИНН {inn}", "strict", env="nonprod") and blocked(f"Тестовый ИНН {inn}", "strict", env="prod")
+    assert environment("Проверено на тесте, выкатить на прод") == "prod"
+    assert environment("Отпуск тестировщика, статус IN TESTING") == "unknown"
+    assert environment("OrchTest wcf alerts: ошибка") == "nonprod" and environment("Contest results") == "unknown"
     assert interpret("noul", {"noul": 0.8}, 0.5) == {"label": "yes", "p": 0.8}
     assert interpret("choice", {"choice": "db", "probabilities": {"db": 0.4, "app": 0.35, "noise": 0.25}}, 0.5)["label"] == "uncertain"
     assert interpret("choice", {"choice": "db", "probabilities": {"db": 0.9, "app": 0.1}}, 0.5)["label"] == "db"
@@ -289,6 +375,9 @@ def main() -> int:
     parser.add_argument("--criteria", help="JSON или @файл: noul — {true, false}; choice — {метка: описание}; score — [уровни]")
     parser.add_argument("--state", help="общий контекст для всех элементов")
     parser.add_argument("--threshold", type=float, default=0.5)
+    parser.add_argument("--env", choices=["auto", "prod", "nonprod"], default="auto",
+                        help="окружение данных: auto — по тексту элемента; nonprod — тест и разработка, без ограничений, "
+                             "кроме ключей внешних сервисов; prod — всегда с ограничениями")
     parser.add_argument("--filter", choices=list(FILTERS), default="strict",
                         help="strict — секреты и персональные данные; secrets — только секреты и карты; off — без фильтра")
     parser.add_argument("--out", help="JSONL с результатами без текстов")
