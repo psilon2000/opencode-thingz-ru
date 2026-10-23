@@ -49,7 +49,7 @@ TOKENS = [
 ]
 SECRETS = TOKENS + [
     r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}", r"\bBearer\s+[A-Za-z0-9._~+/-]{20,}",
-    r"(?i)\b(password|passwd|pwd|пароль)\s*[:=]\s*['\"]?(?=[^\s'\"]*[\d!@#$%^&*])[^\s'\"]{6,}",
+    r"(?i)\b(password|passwd|pwd|пароль)\b[^:=\n]{0,30}[:=]\s*['\"]?(?=[^\s'\"]*[\d!@#$%^&*])[^\s'\"]{6,}",
     r"(?i)\b(password|pwd)=[^;\s]{3,};", r"\b[a-z][a-z0-9+.-]*://[^\s:/@]+:[^\s@/]{3,}@",
 ]
 PERSONAL = [
@@ -345,6 +345,7 @@ def self_test() -> int:
     assert blocked(f"Проверено на тесте, на проде клиент ИНН {inn}", "strict"), "смешанный текст — прод"
     assert not blocked("Идентификатор операции 583408580400", "strict"), "12 цифр без контрольной суммы ИНН"
     assert not blocked("Горячая линия 8 800 222 56 84", "strict")
+    assert blocked("Пароль от прод-базы: Qwerty123!", "strict") and not blocked("Пароль от тестовой БД: Qwerty123!", "strict")
     assert not blocked("На тесте карта 4111 1111 1111 1111, пароль: Qwerty123!", "strict")
     assert blocked("На тесте токен glpat-abcdefghijklmnopqrstuv", "strict"), "ключи внешних сервисов — всегда"
     assert not blocked(f"ИНН {inn}", "strict", env="nonprod") and blocked(f"Тестовый ИНН {inn}", "strict", env="prod")
